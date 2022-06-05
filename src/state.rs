@@ -1,0 +1,77 @@
+use crate::{command::Command, tile::Tile};
+use anyhow::anyhow;
+use anyhow::Result;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
+use std::{collections::HashMap, net::SocketAddr};
+use tokio::sync::mpsc::UnboundedSender;
+
+pub type Map = HashMap<i32, Vec<Tile>>;
+
+#[derive(Serialize, Deserialize)]
+pub struct State {
+    #[serde(skip)]
+    pub peers: HashMap<SocketAddr, UnboundedSender<Command>>,
+    pub id_map: HashMap<u64, u8>,
+    pub map: Map,
+}
+
+impl State {
+    pub fn new() -> Self {
+        State {
+            peers: HashMap::new(),
+            id_map: HashMap::new(),
+            map: HashMap::new(),
+        }
+    }
+
+    pub fn insert_tile(
+        &mut self,
+        player: u64,
+        region_id: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<()> {
+        let id = self.id_map.get(&player).unwrap();
+
+        if let Some(region) = self.map.get_mut(&region_id) {
+            if region
+                .iter()
+                .any(|tile: &Tile| tile.x == x && tile.y == y && tile.z == z)
+            {
+                return Err(anyhow!("Tile in database"));
+            }
+
+            region.push(Tile {
+                x,
+                y,
+                z,
+                player: *id,
+                timestamp: Utc::now().timestamp(),
+            })
+        } else {
+            self.map.insert(
+                region_id,
+                vec![Tile {
+                    x,
+                    y,
+                    z,
+                    player: *id,
+                    timestamp: Utc::now().timestamp(),
+                }],
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn braodcast(&mut self, sender: SocketAddr, message: Command) {
+        for peer in self.peers.iter_mut() {
+            if *peer.0 != sender {
+                let _ = peer.1.send(message.clone().into());
+            }
+        }
+    }
+}
