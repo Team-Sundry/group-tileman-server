@@ -126,40 +126,24 @@ async fn handle_command(
                 return Ok(Some("Handshake sent from registered client".into()));
             }
             peer.register(id, Arc::clone(&state));
-            Command::Response(Status::OK).send(buf, socket).await?;
+            Command::Handshaken(Status::OK, peer.id.unwrap()).send(buf, socket).await?;
 
             let map = state.lock().map.clone();
             for (region, tiles) in map {
                 for tile in tiles {
-                    if tile.player == peer.id.unwrap() {
-                        Command::UpdateTile(0, region, tile.x, tile.y, tile.z)
-                            .send(buf, socket)
-                            .await?;
-                    } else {
-                        Command::UpdateTile(1, region, tile.x, tile.y, tile.z)
-                            .send(buf, socket)
-                            .await?;
-                    }
+                    Command::UpdateTile(tile.player, region, tile.x, tile.y, tile.z)
+                        .send(buf, socket)
+                        .await?;
                 }
             }
         }
         Command::PlaceTile(region, x, y, z) => {
-            let result = {
-                let mut state = state.lock();
-                let result = state.insert_tile(peer.uid.unwrap(), region, x, y, z);
-                if result.is_ok() {
-                    state.braodcast(
-                        socket.peer_addr().unwrap(),
-                        Command::UpdateTile(1, region, x, y, z),
-                    );
-                }
-                result
-            };
-
+            let mut state = state.lock();
+            let result = state.insert_tile(peer.id.unwrap(), region, x, y, z);
             if result.is_ok() {
-                Command::UpdateTile(0, region, x, y, z)
-                    .send(buf, socket)
-                    .await?;
+                state.broadcast_all(
+                    Command::UpdateTile(peer.id.unwrap(), region, x, y, z),
+                );
             }
         }
         _ => {}

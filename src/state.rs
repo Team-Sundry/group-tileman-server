@@ -28,14 +28,12 @@ impl State {
 
     pub fn insert_tile(
         &mut self,
-        player: u64,
+        player: u8,
         region_id: i32,
         x: i32,
         y: i32,
         z: i32,
     ) -> Result<()> {
-        let id = self.id_map.get(&player).unwrap();
-
         if let Some(region) = self.map.get_mut(&region_id) {
             if region
                 .iter()
@@ -48,7 +46,7 @@ impl State {
                 x,
                 y,
                 z,
-                player: *id,
+                player,
                 timestamp: Utc::now().timestamp(),
             })
         } else {
@@ -58,7 +56,7 @@ impl State {
                     x,
                     y,
                     z,
-                    player: *id,
+                    player,
                     timestamp: Utc::now().timestamp(),
                 }],
             );
@@ -67,11 +65,9 @@ impl State {
         Ok(())
     }
 
-    pub fn braodcast(&mut self, sender: SocketAddr, message: Command) {
+    pub fn broadcast_all(&mut self, message: Command) {
         for peer in self.peers.iter_mut() {
-            if *peer.0 != sender {
-                let _ = peer.1.send(message.clone().into());
-            }
+            let _ = peer.1.send(message.clone().into());
         }
     }
 }

@@ -29,6 +29,7 @@ pub enum CommandMap {
     PlaceTile,
     UpdateTile,
     Disconnect,
+    Handshaken,
 }
 
 impl TryFrom<u8> for CommandMap {
@@ -56,6 +57,7 @@ pub enum Command {
     PlaceTile(i32, i32, i32, i32),
     UpdateTile(u8, i32, i32, i32, i32),
     Disconnect,
+    Handshaken(Status, u8),
 }
 
 impl Command {
@@ -74,6 +76,12 @@ impl Command {
                 WriteBytesExt::write_i32::<BigEndian>(&mut buf, *x).unwrap();
                 WriteBytesExt::write_i32::<BigEndian>(&mut buf, *y).unwrap();
                 WriteBytesExt::write_i32::<BigEndian>(&mut buf, *z).unwrap();
+                return buf.position() as usize;
+            },
+            Command::Handshaken(status, id) => {
+                WriteBytesExt::write_u8(&mut buf, CommandMap::Handshaken as u8).unwrap();
+                WriteBytesExt::write_u8(&mut buf, *status as u8).unwrap();
+                WriteBytesExt::write_u8(&mut buf, *id).unwrap();
                 return buf.position() as usize;
             }
             _ => unimplemented!(),
