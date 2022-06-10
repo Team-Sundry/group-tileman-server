@@ -61,28 +61,28 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn into_bytes(&self, buf: &mut Vec<u8>) -> usize {
+    pub fn into_bytes(self, buf: &mut Vec<u8>) -> usize {
         let mut buf = Cursor::new(buf);
         match self {
             Command::Response(status) => {
                 WriteBytesExt::write_u8(&mut buf, CommandMap::Response as u8).unwrap();
-                WriteBytesExt::write_u8(&mut buf, *status as u8).unwrap();
-                return buf.position() as usize;
+                WriteBytesExt::write_u8(&mut buf, status as u8).unwrap();
+                buf.position() as usize
             }
             Command::UpdateTile(id, region, x, y, z) => {
                 WriteBytesExt::write_u8(&mut buf, CommandMap::UpdateTile as u8).unwrap();
-                WriteBytesExt::write_u8(&mut buf, *id).unwrap();
-                WriteBytesExt::write_i32::<BigEndian>(&mut buf, *region).unwrap();
-                WriteBytesExt::write_i32::<BigEndian>(&mut buf, *x).unwrap();
-                WriteBytesExt::write_i32::<BigEndian>(&mut buf, *y).unwrap();
-                WriteBytesExt::write_i32::<BigEndian>(&mut buf, *z).unwrap();
-                return buf.position() as usize;
+                WriteBytesExt::write_u8(&mut buf, id).unwrap();
+                WriteBytesExt::write_i32::<BigEndian>(&mut buf, region).unwrap();
+                WriteBytesExt::write_i32::<BigEndian>(&mut buf, x).unwrap();
+                WriteBytesExt::write_i32::<BigEndian>(&mut buf, y).unwrap();
+                WriteBytesExt::write_i32::<BigEndian>(&mut buf, z).unwrap();
+                buf.position() as usize
             },
             Command::Handshaken(status, id) => {
                 WriteBytesExt::write_u8(&mut buf, CommandMap::Handshaken as u8).unwrap();
-                WriteBytesExt::write_u8(&mut buf, *status as u8).unwrap();
-                WriteBytesExt::write_u8(&mut buf, *id).unwrap();
-                return buf.position() as usize;
+                WriteBytesExt::write_u8(&mut buf, status as u8).unwrap();
+                WriteBytesExt::write_u8(&mut buf, id).unwrap();
+                buf.position() as usize
             }
             _ => unimplemented!(),
         }
