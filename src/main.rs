@@ -13,7 +13,7 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    io::AsyncReadExt,
+    io::{split, AsyncReadExt},
     net::{TcpListener, TcpStream},
     signal,
 };
@@ -59,50 +59,60 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_connection(socket: (TcpStream, SocketAddr), state: Arc<Mutex<State>>) {
-    let (mut socket, addr) = socket;
+    let (stream, addr) = socket;
+    let (mut reciever, mut sender) = split(stream);
+    let (mut peer, mut rx) = Peer::new(Arc::clone(&state), addr).unwrap();
 
     tokio::spawn(async move {
-        let mut peer = Peer::new(Arc::clone(&state), addr).unwrap();
         let mut buf = vec![0u8; 1024 * 32];
-        let mut buf_send = vec![0u8; 1024 * 32];
+
+        while let Some(command) = rx.recv().await {
+            _ = command.send(&mut buf, &mut sender).await;
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 1024 * 32];
 
         'thread: loop {
-            tokio::select! {
-                command = peer.rx.recv() => {
-                    command.expect("wtf?").send(&mut buf_send, &mut socket).await.expect("hmm");
-                },
-                result = socket.read(&mut buf) => {
-                    let n = if result.is_err() {
-                        state.lock().peers.remove(&addr);
-                        println!("Player {} abruptly disconnected", if let Some(id) = peer.id { id as i16 } else { -1 });
-                        break 'thread;
-                    } else { result.unwrap() };
-                    let cursor = &mut Cursor::new(&buf[0..n]);
-
-                    while (cursor.position() as usize) < n {
-                        let command: Command = {
-                            let res = cursor.try_into();
-                            if res.is_ok() { res.unwrap() } else { continue 'thread; }
-                        };
-
-                        println!("{:?} from {:?}", command, addr);
-
-                        let result = match command {
-                            Command::Disconnect => {
-                                state.lock().peers.remove(&addr);
-                                break 'thread;
-                            },
-                            _ => handle_command(command, &mut peer, &mut buf_send, &mut socket, Arc::clone(&state)).await
-                        };
-
-                        if result.is_ok() {
-                            if let Some(test) = result.unwrap() {
-                                println!("Warning: {}", test);
-                            }
-                        } else {
-                            println!("{:?}", result.err());
-                        }
+            let (mut cursor, n) = if let Ok(bytes) = reciever.read(&mut buf).await {
+                (Cursor::new(&buf[0..bytes]), bytes)
+            } else {
+                state.lock().peers.remove(&addr);
+                println!(
+                    "Player {} abruptly disconnected",
+                    if let Some(id) = peer.id {
+                        id as i16
+                    } else {
+                        -1
                     }
+                );
+                break 'thread;
+            };
+
+            while (cursor.position() as usize) < n {
+                let command: Command = if let Ok(command) = (&mut cursor).try_into() {
+                    command
+                } else {
+                    continue 'thread;
+                };
+
+                println!("{:?} from {:?}", command, addr);
+
+                let result = match command {
+                    Command::Disconnect => {
+                        state.lock().peers.remove(&addr);
+                        break 'thread;
+                    }
+                    _ => handle_command(command, &mut peer, Arc::clone(&state)).await,
+                };
+
+                if let Ok(result) = result {
+                    if let Some(msg) = result {
+                        println!("Warning: {}", msg);
+                    }
+                } else {
+                    println!("{:?}", result.err());
                 }
             }
         }
@@ -112,33 +122,31 @@ fn handle_connection(socket: (TcpStream, SocketAddr), state: Arc<Mutex<State>>) 
 async fn handle_command(
     command: Command,
     peer: &mut Peer,
-    buf: &mut Vec<u8>,
-    socket: &mut TcpStream,
     state: Arc<Mutex<State>>,
 ) -> Result<Option<String>, Box<dyn Error>> {
     match command {
         Command::Handshake(ver, id) => {
             if ver != crate::command::VERSION {
-                Command::Response(Status::VersionMismatch)
-                    .send(buf, socket)
-                    .await?;
+                peer.send(Command::Response(Status::VersionMismatch));
                 return Ok(Some("Protocol version missmatch".into()));
             }
             if peer.is_registered() {
-                Command::Response(Status::Err).send(buf, socket).await?;
+                peer.send(Command::Response(Status::Err));
                 return Ok(Some("Handshake sent from registered client".into()));
             }
             peer.register(id, Arc::clone(&state));
-            Command::Handshaken(Status::OK, peer.id.unwrap())
-                .send(buf, socket)
-                .await?;
+            peer.send(Command::Handshaken(Status::OK, peer.id.unwrap()));
 
             let map = state.lock().map.clone();
             for (region, tiles) in map {
                 for tile in tiles {
-                    Command::UpdateTile(tile.player, region, tile.x, tile.y, tile.z)
-                        .send(buf, socket)
-                        .await?;
+                    peer.send(Command::UpdateTile(
+                        tile.player,
+                        region,
+                        tile.x,
+                        tile.y,
+                        tile.z,
+                    ));
                 }
             }
         }

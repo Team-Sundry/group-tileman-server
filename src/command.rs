@@ -4,8 +4,8 @@ use anyhow::Result;
 use byteorder::BigEndian;
 use byteorder::WriteBytesExt;
 use std::io::Cursor;
+use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 
 use byteorder::ReadBytesExt;
 
@@ -88,7 +88,11 @@ impl Command {
         }
     }
 
-    pub async fn send(&self, buf: &mut Vec<u8>, socket: &mut TcpStream) -> Result<()> {
+    pub async fn send<T: AsyncWrite + Unpin>(
+        &self,
+        buf: &mut Vec<u8>,
+        socket: &mut T,
+    ) -> Result<()> {
         let n = self.into_bytes(buf);
         socket.write_all(&buf[0..n]).await?;
         Ok(())

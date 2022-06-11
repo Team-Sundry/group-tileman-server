@@ -2,24 +2,30 @@ use crate::{command::Command, state::State};
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 pub struct Peer {
     pub uid: Option<u64>,
     pub id: Option<u8>,
-    pub rx: UnboundedReceiver<Command>,
+    pub tx: UnboundedSender<Command>,
 }
 
 impl Peer {
-    pub fn new(state: Arc<Mutex<State>>, addr: SocketAddr) -> Result<Peer> {
+    pub fn new(
+        state: Arc<Mutex<State>>,
+        addr: SocketAddr,
+    ) -> Result<(Self, UnboundedReceiver<Command>)> {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut state = state.lock();
-        state.peers.insert(addr, tx);
-        Ok(Peer {
-            uid: None,
-            id: None,
+        state.peers.insert(addr, tx.clone());
+        Ok((
+            Peer {
+                uid: None,
+                id: None,
+                tx,
+            },
             rx,
-        })
+        ))
     }
 
     pub fn is_registered(&self) -> bool {
@@ -36,5 +42,9 @@ impl Peer {
             state.id_map.insert(uid, id as u8);
             self.id = Some(id as u8);
         }
+    }
+
+    pub fn send(&self, command: Command) {
+        self.tx.send(command).unwrap();
     }
 }
