@@ -60,7 +60,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 fn handle_connection(socket: (TcpStream, SocketAddr), state: Arc<Mutex<State>>) {
     let (mut socket, addr) = socket;
-    println!("New connection");
 
     tokio::spawn(async move {
         let mut peer = Peer::new(Arc::clone(&state), addr).unwrap();
@@ -73,7 +72,11 @@ fn handle_connection(socket: (TcpStream, SocketAddr), state: Arc<Mutex<State>>) 
                     command.expect("wtf?").send(&mut buf_send, &mut socket).await.expect("hmm");
                 },
                 result = socket.read(&mut buf) => {
-                    let n = if result.is_err() { continue; } else { result.unwrap() };
+                    let n = if result.is_err() {
+                        state.lock().peers.remove(&addr);
+                        println!("Player {} abruptly disconnected", if let Some(id) = peer.id { id as i16 } else { -1 });
+                        break 'thread;
+                    } else { result.unwrap() };
                     let cursor = &mut Cursor::new(&buf[0..n]);
 
                     while (cursor.position() as usize) < n {
@@ -122,11 +125,13 @@ async fn handle_command(
                 return Ok(Some("Protocol version missmatch".into()));
             }
             if peer.is_registered() {
-                Command::Response(Status::ERR).send(buf, socket).await?;
+                Command::Response(Status::Err).send(buf, socket).await?;
                 return Ok(Some("Handshake sent from registered client".into()));
             }
             peer.register(id, Arc::clone(&state));
-            Command::Handshaken(Status::OK, peer.id.unwrap()).send(buf, socket).await?;
+            Command::Handshaken(Status::OK, peer.id.unwrap())
+                .send(buf, socket)
+                .await?;
 
             let map = state.lock().map.clone();
             for (region, tiles) in map {
@@ -141,9 +146,7 @@ async fn handle_command(
             let mut state = state.lock();
             let result = state.insert_tile(peer.id.unwrap(), region, x, y, z);
             if result.is_ok() {
-                state.broadcast_all(
-                    Command::UpdateTile(peer.id.unwrap(), region, x, y, z),
-                );
+                state.broadcast_all(Command::UpdateTile(peer.id.unwrap(), region, x, y, z));
             }
         }
         _ => {}

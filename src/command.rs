@@ -18,7 +18,7 @@ type PlayerHash = u64;
 #[derive(Clone, Copy, Debug)]
 pub enum Status {
     OK,
-    ERR,
+    Err,
     VersionMismatch,
 }
 
@@ -77,7 +77,7 @@ impl Command {
                 WriteBytesExt::write_i32::<BigEndian>(&mut buf, y).unwrap();
                 WriteBytesExt::write_i32::<BigEndian>(&mut buf, z).unwrap();
                 buf.position() as usize
-            },
+            }
             Command::Handshaken(status, id) => {
                 WriteBytesExt::write_u8(&mut buf, CommandMap::Handshaken as u8).unwrap();
                 WriteBytesExt::write_u8(&mut buf, status as u8).unwrap();
