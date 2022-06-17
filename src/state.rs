@@ -65,9 +65,9 @@ impl State {
         Ok(())
     }
 
-    pub fn broadcast_all(&mut self, message: Command) {
-        for peer in self.peers.iter_mut() {
-            let _ = peer.1.send(message.clone().into());
+    pub fn broadcast_all(&self, message: Command) {
+        for peer in self.peers.iter() {
+            let _ = peer.1.send(message);
         }
     }
 }

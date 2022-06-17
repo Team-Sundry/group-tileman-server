@@ -3,19 +3,19 @@ mod peer;
 mod state;
 mod tile;
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use std::{
     error::Error,
     fs::File,
     io::{Cursor, Read, Write},
     net::SocketAddr,
     path::Path,
-    sync::Arc,
+    sync::Arc, time::Duration,
 };
 use tokio::{
     io::{split, AsyncReadExt},
     net::{TcpListener, TcpStream},
-    signal,
+    signal, time,
 };
 
 use crate::{
@@ -41,14 +41,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     println!("Listening on: {}", addr);
+    
+    let state_clone = Arc::clone(&state);
+    let save_handle = tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(60 * 60));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            println!("Saving...");
+            let state = state_clone.lock();
+            save(state);
+            println!("Map saved!");
+        }
+    });
 
     loop {
         tokio::select! {
             _ = signal::ctrl_c() => {
+                save_handle.abort();
                 let state = state.lock();
-                let serialized = serde_json::to_vec(&*state).unwrap();
-                let mut file = File::create("save.dat")?;
-                file.write_all(&serialized)?;
+                state.broadcast_all(Command::Disconnect);
+                save(state);
                 break
             }
             socket = listener.accept() => handle_connection(socket?, Arc::clone(&state)),
@@ -161,4 +174,10 @@ async fn handle_command(
     }
 
     Ok(None)
+}
+
+fn save(state: MutexGuard<State>) {
+    let serialized = serde_json::to_vec(&*state).unwrap();
+    let mut file = File::create("save.dat").unwrap();
+    file.write_all(&serialized).unwrap();
 }
